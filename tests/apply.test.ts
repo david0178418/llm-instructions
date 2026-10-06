@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import {
-	cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
+	chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
 	readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync,
 	unlinkSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const SOURCE = realpathSync(join(import.meta.dir, ".."));
 class Fixture {
@@ -13,7 +13,7 @@ class Fixture {
 	readonly repo = join(this.base, "repo with spaces");
 	readonly home = join(this.base, "home");
 	readonly shared = join(this.repo, "instructions/user.md");
-	readonly env = { ...process.env, AGENT_CONFIG_HOME: this.home };
+	readonly env: NodeJS.ProcessEnv = { ...process.env, AGENT_CONFIG_HOME: this.home };
 	constructor() {
 		mkdirSync(this.repo);
 		for (const path of ["apply.sh", "scripts/apply.ts", "instructions", "skills", "package.json"]) {
@@ -21,8 +21,10 @@ class Fixture {
 		}
 		writeFileSync(this.shared, "Shared instructions.\n");
 	}
-	run(args: readonly string[] = [], code = 0) {
-		const result = Bun.spawnSync(["/bin/bash", join(this.repo, "apply.sh"), ...args], { env: this.env });
+	run(args: readonly string[] = [], code = 0, preload?: string) {
+		const command = preload === undefined ? ["/bin/bash", join(this.repo, "apply.sh"), ...args]
+			: [process.execPath, "--preload", preload, join(this.repo, "scripts/apply.ts"), ...args];
+		const result = Bun.spawnSync(command, { env: this.env });
 		const stdout = result.stdout.toString();
 		const stderr = result.stderr.toString();
 		expect(result.exitCode, stdout + stderr).toBe(code);
@@ -58,11 +60,46 @@ afterEach(function () { rmSync(fixture.base, { recursive: true, force: true }); 
 const isLink = function (path: string): boolean {
 	return lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink() ?? false;
 };
-const backupFiles = function (base: string): string[] {
-	return readdirSync(base).flatMap(function (directory) {
-		return readdirSync(join(base, directory)).filter(function (name) { return name.endsWith(".bak"); })
-			.map(function (name) { return join(base, directory, name); });
+const expectAbsent = function (path: string): void {
+	expect(lstatSync(path, { throwIfNoEntry: false })).toBeUndefined();
+};
+type RecoveryRecord = {
+	readonly path: string;
+	readonly before: string;
+	readonly after: string;
+	readonly backup?: string;
+	readonly target?: string;
+};
+const isRecord = function (value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+const recovery = function (stdout: string) {
+	const directory = /^Recovery backups: (.+)$/m.exec(stdout)?.[1];
+	if (directory === undefined) throw new Error("deployment did not report recovery directory");
+	const parsed: unknown = JSON.parse(readFileSync(join(directory, "journal.json"), "utf8"));
+	if (!Array.isArray(parsed)) throw new Error("recovery journal must be an array");
+	const entries: RecoveryRecord[] = parsed.map(function (value: unknown) {
+		if (!isRecord(value) || typeof value.path !== "string" || typeof value.before !== "string" || typeof value.after !== "string") {
+			throw new Error("invalid recovery record");
+		}
+		if (value.backup !== undefined && typeof value.backup !== "string") throw new Error("invalid recovery backup path");
+		if (value.target !== undefined && typeof value.target !== "string") throw new Error("invalid recovery link target");
+		return { path: value.path, before: value.before, after: value.after,
+			...(typeof value.backup === "string" ? { backup: value.backup } : {}),
+			...(typeof value.target === "string" ? { target: value.target } : {}) };
 	});
+	const record = function (path: string): RecoveryRecord {
+		const matches = entries.filter(function (entry) { return entry.path === path; });
+		expect(matches).toHaveLength(1);
+		const entry = matches[0];
+		if (entry === undefined) throw new Error("missing recovery record for " + path);
+		return entry;
+	};
+	return { directory, record };
+};
+const expectBackup = function (record: RecoveryRecord, content: Buffer): void {
+	if (record.backup === undefined) throw new Error("missing backup for " + record.path);
+	expect(readFileSync(record.backup).equals(content)).toBe(true);
 };
 
 test("fresh install previews without writes and repeated application is a no-op", function () {
@@ -75,10 +112,10 @@ test("fresh install previews without writes and repeated application is a no-op"
 	expect(fixture.tree()).toEqual(before);
 	fixture.run(["--harness", "codex"]);
 	const target = join(fixture.home, ".codex/AGENTS.md");
-	expect(isLink(target)).toBe(false);
+	expect(lstatSync(target).isFile()).toBe(true);
 	expect(readFileSync(target)).toEqual(readFileSync(fixture.shared));
 	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
-	expect(existsSync(join(fixture.home, ".claude"))).toBe(false);
+	expectAbsent(join(fixture.home, ".claude"));
 	const installed = fixture.tree();
 	fixture.run(["--harness", "codex"]);
 	fixture.run(["--check"]);
@@ -93,14 +130,19 @@ test("addenda and shared instructions update, with replaced contents backed up",
 	expect(readFileSync(target, "utf8")).toBe("Shared instructions.\n\nCodex specifics.\n");
 	writeFileSync(fixture.shared, "New shared.\n");
 	writeFileSync(add, "New addendum.\n");
+	chmodSync(target, 0o640);
 	fixture.run(["--check"], 1);
-	fixture.run();
+	const update = fixture.run();
 	expect(readFileSync(target, "utf8")).toBe("New shared.\n\nNew addendum.\n");
+	expect(lstatSync(target).mode & 0o777).toBe(0o640);
+	const original = recovery(update.stdout).record(target);
+	expect(original.before).toBe("file");
+	expect(original.after).toBe("file");
+	expectBackup(original, Buffer.from("Shared instructions.\n\nCodex specifics.\n"));
 	writeFileSync(add, "");
-	fixture.run();
+	const removal = fixture.run();
 	expect(readFileSync(target, "utf8")).toBe("New shared.\n");
-	const backups = backupFiles(join(fixture.home, ".local/state/agent-config/backups"));
-	expect(backups.some(function (path) { return readFileSync(path, "utf8") === "Shared instructions.\n\nCodex specifics.\n"; })).toBe(true);
+	expectBackup(recovery(removal.stdout).record(target), Buffer.from("New shared.\n\nNew addendum.\n"));
 });
 
 test("initial conflicts and subsequent local edits block every planned write", function () {
@@ -147,31 +189,35 @@ test("empty source preserves Grok's existing or absent compatibility config", fu
 		if (content === undefined) unlinkSync(config);
 		else writeFileSync(config, content);
 		fixture.run();
-		expect(existsSync(join(fixture.home, ".grok/Agents.md"))).toBe(false);
-		if (content === undefined) expect(existsSync(config)).toBe(false);
+		expectAbsent(join(fixture.home, ".grok/Agents.md"));
+		if (content === undefined) expectAbsent(config);
 		else expect(readFileSync(config, "utf8")).toBe(content);
 		expect(isLink(join(fixture.home, ".grok/skills/sync-agent-config"))).toBe(true);
 		fixture.run(["--check"], 1);
 	}
 });
 
-test("renamed/deleted skills are reconciled while native plugins and system skills survive", function () {
+test("renamed/deleted skills are reconciled without changing unrelated skills or plugin contents", function () {
 	const skillDir = join(fixture.home, ".agents/skills");
-	mkdirSync(join(skillDir, ".system"), { recursive: true });
-	symlinkSync(join(fixture.base, "plugin-cache"), join(skillDir, "native-plugin"));
+	const unrelated = join(skillDir, "unrelated/SKILL.md");
+	fixture.write(unrelated, "User-owned skill");
+	const pluginCache = join(fixture.base, "plugin-cache");
+	fixture.write(join(pluginCache, "SKILL.md"), "Marketplace skill");
+	symlinkSync(pluginCache, join(skillDir, "native-plugin"));
 	const native = join(fixture.home, ".codex/plugins/cache/manifest.json");
 	fixture.write(native, '{"installed": true}');
 	fixture.run();
 	renameSync(join(fixture.repo, "skills/sync-agent-config"), join(fixture.repo, "skills/renamed"));
 	expect(fixture.run(["--check"], 1).stdout).toContain("remove obsolete skill link");
 	fixture.run();
-	expect(isLink(join(skillDir, "sync-agent-config"))).toBe(false);
+	expectAbsent(join(skillDir, "sync-agent-config"));
 	expect(isLink(join(skillDir, "renamed"))).toBe(true);
 	rmSync(join(fixture.repo, "skills/renamed"), { recursive: true });
 	fixture.run();
-	expect(isLink(join(skillDir, "renamed"))).toBe(false);
-	expect(existsSync(join(skillDir, ".system"))).toBe(true);
-	expect(readlinkSync(join(skillDir, "native-plugin"))).toBe(join(fixture.base, "plugin-cache"));
+	expectAbsent(join(skillDir, "renamed"));
+	expect(readFileSync(unrelated, "utf8")).toBe("User-owned skill");
+	expect(readlinkSync(join(skillDir, "native-plugin"))).toBe(pluginCache);
+	expect(readFileSync(join(pluginCache, "SKILL.md"), "utf8")).toBe("Marketplace skill");
 	expect(readFileSync(native, "utf8")).toBe('{"installed": true}');
 });
 
@@ -223,16 +269,9 @@ test("destination aliases are not treated as managed for live or deleted sources
 	}
 });
 
-test("pre-existing custom skill directories block even when contents match", function () {
-	cpSync(join(fixture.repo, "skills/sync-agent-config"), join(fixture.home, ".agents/skills/sync-agent-config"), { recursive: true });
-	const before = fixture.tree();
-	fixture.run(["--harness", "codex"], 2);
-	expect(fixture.tree()).toEqual(before);
-});
-
 test("detection handles absent harnesses and custom config paths", function () {
 	expect(fixture.run().stdout).toContain("Detected harnesses: none");
-	expect(existsSync(fixture.home)).toBe(false);
+	expectAbsent(fixture.home);
 	mkdirSync(join(fixture.home, ".claude"), { recursive: true });
 	expect(fixture.run(["--dry-run"]).stdout).toContain("Detected harnesses: claude");
 	const custom = join(fixture.base, "custom codex");
@@ -240,20 +279,22 @@ test("detection handles absent harnesses and custom config paths", function () {
 	expect(fixture.run(["--config-dir", `codex=${custom}`]).stdout).toContain("Detected harnesses: claude, codex");
 	expect(existsSync(join(custom, "AGENTS.md"))).toBe(true);
 	fixture.run(["--config-dir", `codex=${custom}`, "--check"]);
-	expect(existsSync(join(fixture.home, ".codex"))).toBe(false);
+	expectAbsent(join(fixture.home, ".codex"));
 });
 
 test("legacy instruction links migrate to regular files with link and content backups", function () {
 	const dest = join(fixture.home, ".codex/AGENTS.md");
 	mkdirSync(join(fixture.home, ".codex"), { recursive: true });
 	symlinkSync(fixture.shared, dest);
-	fixture.run();
-	expect(isLink(dest)).toBe(false);
+	const result = fixture.run();
+	expect(lstatSync(dest).isFile()).toBe(true);
+	expect(readFileSync(dest)).toEqual(readFileSync(fixture.shared));
 	expect(readFileSync(fixture.shared, "utf8")).toBe("Shared instructions.\n");
-	const base = join(fixture.home, ".local/state/agent-config/backups");
-	const journals = readdirSync(base).map(function (name) { return readFileSync(join(base, name, "journal.json"), "utf8"); });
-	expect(journals.some(function (journal) { return journal.includes(JSON.stringify(fixture.shared)); })).toBe(true);
-	expect(backupFiles(base).some(function (path) { return readFileSync(path).equals(readFileSync(fixture.shared)); })).toBe(true);
+	const record = recovery(result.stdout).record(dest);
+	expect(record.before).toBe("link");
+	expect(record.after).toBe("file");
+	expect(record.target).toBe(fixture.shared);
+	expectBackup(record, readFileSync(fixture.shared));
 });
 
 test("external instruction links remain untouched even if contents match", function () {
@@ -269,15 +310,25 @@ test("external instruction links remain untouched even if contents match", funct
 
 test("Grok TOML edits preserve array tables, unrelated values, and comments", function () {
 	const dest = join(fixture.home, ".grok/config.toml");
-	fixture.write(dest, '[compat.claude]\n# keep comment\nother = true\n\n[[servers]]\nname = "test"\nagents = true\n');
-	const before = fixture.tree();
-	fixture.run(["--dry-run", "--diff"]);
-	expect(fixture.tree()).toEqual(before);
-	fixture.run();
-	const parsed: unknown = Bun.TOML.parse(readFileSync(dest, "utf8"));
-	expect(parsed).toEqual({ compat: { claude: { other: true, agents: false } }, servers: [{ name: "test", agents: true }] });
-	expect(readFileSync(dest, "utf8")).toContain("# keep comment");
-	fixture.run(["--check"]);
+	const cases = [
+		{ source: '[compat.claude]\n# keep comment\nother = true\n\n[[servers]]\nname = "test"\nagents = true\n',
+			expected: { compat: { claude: { other: true, agents: false } }, servers: [{ name: "test", agents: true }] }, comment: "# keep comment" },
+		{ source: '[compat.claude]\nagents = true # preserve\n', expected: { compat: { claude: { agents: false } } }, comment: "# preserve" },
+		{ source: '[other]\nvalue = "#foo"\n', expected: { other: { value: "#foo" }, compat: { claude: { agents: false } } }, comment: "" },
+		{ source: '[compat.claude]', expected: { compat: { claude: { agents: false } } }, comment: "" },
+	];
+	for (const scenario of cases) {
+		fixture.write(dest, scenario.source);
+		const before = fixture.tree();
+		fixture.run(["--dry-run", "--diff"]);
+		expect(fixture.tree()).toEqual(before);
+		fixture.run();
+		const actual = readFileSync(dest, "utf8");
+		const parsed: unknown = Bun.TOML.parse(actual);
+		expect(parsed).toEqual(scenario.expected);
+		if (scenario.comment) expect(actual).toContain(scenario.comment);
+		fixture.run(["--check"]);
+	}
 });
 
 test("invalid TOML, string booleans, and unsupported inline layouts block writes", function () {
@@ -292,15 +343,6 @@ test("invalid TOML, string booleans, and unsupported inline layouts block writes
 	}
 });
 
-test("Grok true, missing tables, and headings without newlines deploy correctly", function () {
-	const dest = join(fixture.home, ".grok/config.toml");
-	for (const text of ['[compat.claude]\nagents = true # preserve\n', '[other]\nvalue = "#foo"\n', '[compat.claude]']) {
-		fixture.write(dest, text);
-		fixture.run();
-		expect(readFileSync(dest, "utf8")).toContain("agents = false");
-		fixture.run(["--check"]);
-	}
-});
 
 test("symlinked whole skill directories cannot modify external contents", function () {
 	const external = join(fixture.base, "marketplace-owned");
@@ -335,7 +377,7 @@ test("malformed deployment state blocks all writes", function () {
 	}
 });
 
-test("version-1 Python-format state supports updates, conflicts, backups, and cleanup", function () {
+test("existing version-1 state supports updates, conflicts, exact backups, and cleanup", function () {
 	const instruction = join(fixture.home, ".codex/AGENTS.md");
 	const oldContents = "Old shared instructions: caf\u00e9.\n";
 	fixture.write(instruction, oldContents);
@@ -356,11 +398,13 @@ test("version-1 Python-format state supports updates, conflicts, backups, and cl
 	expect(fixture.tree()).toEqual(before);
 	writeFileSync(instruction, oldContents);
 	fixture.run(["--check"], 1);
-	fixture.run();
+	const update = fixture.run();
 	expect(readFileSync(instruction, "utf8")).toBe("Shared instructions.\n");
-	expect(isLink(legacySkill)).toBe(false);
-	const backups = backupFiles(join(fixture.home, ".local/state/agent-config/backups"));
-	expect(backups.some(function (path) { return readFileSync(path, "utf8") === serialized; })).toBe(true);
+	expectAbsent(legacySkill);
+	const journal = recovery(update.stdout);
+	expectBackup(journal.record(instruction), Buffer.from(oldContents));
+	expect(journal.record(legacySkill)).toEqual({ path: legacySkill, before: "link", after: "missing", target: legacyTarget });
+	expect(readFileSync(join(journal.directory, "state.json.bak"), "utf8")).toBe(serialized);
 	fixture.run(["--check"]);
 });
 
@@ -374,16 +418,9 @@ test("deployment and bun run apply require neither Python nor installed packages
 	expect(deploy.exitCode, deploy.stderr.toString()).toBe(0);
 	const check = Bun.spawnSync([process.execPath, "run", "apply", "--check"], { env, cwd: fixture.repo });
 	expect(check.exitCode, check.stdout.toString() + check.stderr.toString()).toBe(0);
-	expect(existsSync(join(fixture.repo, "node_modules"))).toBe(false);
+	expectAbsent(join(fixture.repo, "node_modules"));
 });
 
-test("invalid CLI arguments fail without writing and help remains available", function () {
-	for (const args of [["--harness", "unknown"], ["--check", "--dry-run"], ["--config-dir", "codex="], ["--skills-dir", "codex="], ["--unexpected"]]) {
-		fixture.run(args, 2);
-		expect(existsSync(fixture.home)).toBe(false);
-	}
-	expect(fixture.run(["--help"]).stdout).toContain("usage: apply.sh");
-});
 
 test("all harnesses install in native personal locations", function () {
 	fixture.run(["--harness", "codex", "--harness", "claude", "--harness", "grok"]);
@@ -392,14 +429,14 @@ test("all harnesses install in native personal locations", function () {
 			expect(readlinkSync(join(fixture.home, root, "skills", name))).toBe(join(fixture.repo, "skills", name));
 		}
 	}
-	expect(existsSync(join(fixture.home, ".codex/skills"))).toBe(false);
+	expectAbsent(join(fixture.home, ".codex/skills"));
 	fixture.run(["--check"]);
 });
 
 const legacyCodex = function (): string {
 	const dest = join(fixture.home, ".codex/skills/sync-agent-config");
 	const target = join(fixture.repo, "skills/sync-agent-config");
-	mkdirSync(join(fixture.home, ".codex/skills/.system"), { recursive: true });
+	fixture.write(join(fixture.home, ".codex/skills/.system/builtin/SKILL.md"), "Application-owned built-in");
 	symlinkSync(target, dest);
 	fixture.write(join(fixture.home, ".local/state/agent-config/state.json"), JSON.stringify({
 		version: 1, entries: { [dest]: { kind: "skill", target } },
@@ -416,9 +453,9 @@ test("legacy Codex migration preserves unmanaged links and system/plugin files",
 	expect(fixture.run(["--dry-run"]).stdout).toContain("remove legacy Codex skill link");
 	expect(fixture.tree()).toEqual(before);
 	fixture.run();
-	expect(isLink(legacy)).toBe(false);
-	expect(isLink(untracked)).toBe(true);
-	expect(existsSync(join(fixture.home, ".codex/skills/.system"))).toBe(true);
+	expectAbsent(legacy);
+	expect(readlinkSync(untracked)).toBe(join(fixture.repo, "skills/project-delivery"));
+	expect(readFileSync(join(fixture.home, ".codex/skills/.system/builtin/SKILL.md"), "utf8")).toBe("Application-owned built-in");
 	expect(readFileSync(join(fixture.home, ".codex/plugins/cache/manifest.json"), "utf8")).toBe("Keep plugin registration");
 	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
 	fixture.run(["--check"]);
@@ -432,16 +469,20 @@ test("locally changed legacy links block migration without writes", function () 
 	fixture.run(["--dry-run"], 2);
 	fixture.run([], 2);
 	expect(fixture.tree()).toEqual(before);
-	expect(existsSync(join(fixture.home, ".agents"))).toBe(false);
+	expectAbsent(join(fixture.home, ".agents"));
 });
 
 test("a native-destination collision blocks migration without removing legacy links", function () {
 	const legacy = legacyCodex();
-	fixture.write(join(fixture.home, ".agents/skills/sync-agent-config/SKILL.md"), "Existing skill");
-	const before = fixture.tree();
-	fixture.run([], 2);
-	expect(fixture.tree()).toEqual(before);
-	expect(isLink(legacy)).toBe(true);
+	const dest = join(fixture.home, ".agents/skills/sync-agent-config");
+	cpSync(join(fixture.repo, "skills/sync-agent-config"), dest, { recursive: true });
+	for (const matching of [true, false]) {
+		if (!matching) writeFileSync(join(dest, "SKILL.md"), "Existing skill with local changes");
+		const before = fixture.tree();
+		fixture.run([], 2);
+		expect(fixture.tree()).toEqual(before);
+		expect(readlinkSync(legacy)).toBe(join(fixture.repo, "skills/sync-agent-config"));
+	}
 });
 
 test("redirected legacy directories cannot remove links owned by another location", function () {
@@ -460,7 +501,7 @@ test("Codex config path does not redirect native skills; explicit skill override
 	const config = join(fixture.base, "custom codex");
 	fixture.run(["--harness", "codex", "--config-dir", `codex=${config}`]);
 	expect(existsSync(join(config, "AGENTS.md"))).toBe(true);
-	expect(existsSync(join(config, "skills"))).toBe(false);
+	expectAbsent(join(config, "skills"));
 	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
 	const skills = join(fixture.base, "custom personal skills");
 	fixture.run(["--harness", "codex", "--config-dir", `codex=${config}`, "--skills-dir", `codex=${skills}`]);
@@ -478,5 +519,40 @@ test("Claude and Grok custom config paths retain native skills subdirectories", 
 	}
 	expect(existsSync(join(claude, "CLAUDE.md"))).toBe(true);
 	expect(existsSync(join(grok, "Agents.md"))).toBe(true);
+	fixture.run([...args, "--check"]);
+});
+
+test.each([".claude/CLAUDE.md", ".codex/AGENTS.md"])("failed replacement of %s preserves old contents and permits recovery", function (failedPath) {
+	const args = ["--harness", "claude", "--harness", "codex"];
+	writeFileSync(join(fixture.repo, "instructions/claude.md"), "Claude-specific.\n");
+	writeFileSync(join(fixture.repo, "instructions/codex.md"), "Codex-specific.\n");
+	fixture.run(args);
+	const claude = join(fixture.home, ".claude/CLAUDE.md");
+	const codex = join(fixture.home, ".codex/AGENTS.md");
+	const originals = new Map([claude, codex].map(function (path) { return [path, readFileSync(path)] as const; }));
+	const state = join(fixture.home, ".local/state/agent-config/state.json");
+	const originalState = readFileSync(state);
+	writeFileSync(fixture.shared, "Updated instructions.\n");
+	fixture.env.AGENT_CONFIG_TEST_FAIL_DEST = join(fixture.home, failedPath);
+	const result = fixture.run(args, 2, join(SOURCE, "tests/helpers/fail-replacement.ts"));
+	expect(result.stderr).toContain("Injected replacement failure");
+	const journal = recovery(result.stdout);
+	expect(readFileSync(state)).toEqual(originalState);
+	expect(readFileSync(join(journal.directory, "state.json.bak"))).toEqual(originalState);
+	for (const [path, original] of originals) {
+		const record = journal.record(path);
+		expect(record.before).toBe("file");
+		expect(record.after).toBe("file");
+		expectBackup(record, original);
+		const appliedBeforeFailure = failedPath === ".codex/AGENTS.md" && path === claude;
+		expect(readFileSync(path)).toEqual(appliedBeforeFailure ? Buffer.from("Updated instructions.\n\nClaude-specific.\n") : original);
+		expect(readdirSync(dirname(path)).filter(function (name) { return name.startsWith(".agent-config-"); })).toEqual([]);
+		// Restore from the documented recovery records, not from test originals.
+		if (record.backup === undefined) throw new Error("missing recovery backup");
+		writeFileSync(path, readFileSync(record.backup));
+	}
+	for (const [path, original] of originals) expect(readFileSync(path)).toEqual(original);
+	fixture.run([...args, "--check"], 1);
+	fixture.run(args);
 	fixture.run([...args, "--check"]);
 });

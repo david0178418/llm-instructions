@@ -53,10 +53,14 @@ For each selected harness, the script copies shared instructions followed by a n
 | Harness | Default instruction destination | Default custom skill directory |
 | --- | --- | --- |
 | Claude Code | `~/.claude/CLAUDE.md` | `~/.claude/skills/` |
-| Codex | `~/.codex/AGENTS.md` | `~/.codex/skills/` |
+| Codex | `~/.codex/AGENTS.md` | `~/.agents/skills/` |
 | Grok | `~/.grok/Agents.md` | `~/.grok/skills/` |
 
 Each custom skill directory is linked individually. Store source skill directories directly in this repository; symlinked source directories are rejected. Adding or renaming a skill requires applying again; edits inside an already-linked skill are visible directly through its link. Recorded obsolete links are removed only when their normalized link paths still match the recorded targets. Changed links block application rather than being deleted, even when they resolve to the same contents through another symlink.
+
+These are native personal discovery locations: [Codex](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills), [Claude Code](https://code.claude.com/docs/en/skills#choose-where-skills-load), and [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/08-skills.md). The global instructions describe when to use a skill; they do not prescribe path searches or discovery fallbacks.
+
+When upgrading from the old Codex destination, application first plans links in `~/.agents/skills/` and removal of recorded links under the selected Codex configuration's `skills/` directory. Only unchanged links recorded in deployment state are removed. Untracked links, `.system`, native plugins, and unrelated files remain untouched. A changed legacy link, redirected legacy directory, or collision at the native destination blocks all changes. Dry run reports the migration before it is applied.
 
 For selected Grok configurations, the script sets the boolean `[compat.claude] agents = false` in `config.toml` to avoid loading the shared global policy twice through Claude compatibility. It validates TOML before and after the edit and preserves unrelated values and formatting. Unusual valid layouts that cannot be safely edited are reported as conflicts; set that flag manually in those cases. This setting concerns instruction compatibility, not plugin installation.
 
@@ -102,7 +106,7 @@ All planned conflicts are checked before deployment. File replacement is atomic,
 
 ## Custom paths
 
-`CODEX_HOME` and `CLAUDE_CONFIG_DIR` override their harness configuration directories when set. Use repeatable `--config-dir` arguments for other locations or explicit overrides:
+`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `GROK_HOME` override their harness configuration directories when set. Use repeatable `--config-dir` arguments for other locations or explicit overrides:
 
 ```bash
 ./apply.sh --config-dir codex=/path/to/codex --dry-run
@@ -111,7 +115,15 @@ All planned conflicts are checked before deployment. File replacement is atomic,
 
 A path override participates in detection but does not select the harness by itself. Use `--harness` when the directory does not exist yet. Repeat the same overrides for subsequent runs. Selected harnesses must use distinct configuration directories.
 
-`AGENT_CONFIG_HOME` redirects the default home paths and deployment state, primarily for isolated tests. When set, it also suppresses inherited `CODEX_HOME` and `CLAUDE_CONFIG_DIR`; explicit `--config-dir` arguments still work.
+Claude and Grok personal skill destinations follow their selected configuration directories. Codex personal skills stay under `~/.agents/skills/`, independently of `CODEX_HOME` or `--config-dir codex=...`. For an explicitly configured alternative skill directory, use `--skills-dir HARNESS=PATH`:
+
+```bash
+./apply.sh --harness codex --skills-dir codex=/path/to/personal-skills --dry-run
+```
+
+This deployment override does not configure the harness to discover that alternate directory. Use native defaults unless the harness is separately configured for the alternative. Repeat overrides on future runs. Changes to custom skill directories preserve managed links outside the currently selected destinations; automatic migration is limited to the legacy Codex configuration-directory path.
+
+`AGENT_CONFIG_HOME` redirects the default home paths and deployment state, primarily for isolated tests. When set, it also suppresses inherited `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `GROK_HOME`; explicit path arguments still work.
 
 ## Native plugins and unrelated files
 

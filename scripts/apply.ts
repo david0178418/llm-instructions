@@ -270,9 +270,10 @@ const main = function (): number {
 		check: { type: "boolean" }, "dry-run": { type: "boolean", short: "n" },
 		diff: { type: "boolean" }, help: { type: "boolean", short: "h" },
 		harness: { type: "string", multiple: true }, "config-dir": { type: "string", multiple: true },
+		"skills-dir": { type: "string", multiple: true },
 	} });
 	if (values.help) {
-		console.log("usage: apply.sh [--check | --dry-run] [--diff] [--harness claude|codex|grok] [--config-dir HARNESS=PATH]\n\nDetect configured harnesses by default; repeat --harness to select explicitly.\n--check exits 1 for pending changes or skipped instructions; --dry-run (-n) writes nothing.\n--diff includes content differences. Conflicts and errors exit 2.");
+		console.log("usage: apply.sh [--check | --dry-run] [--diff] [--harness claude|codex|grok] [--config-dir HARNESS=PATH] [--skills-dir HARNESS=PATH]\n\nDetect configured harnesses by default; repeat --harness to select explicitly.\n--check exits 1 for pending changes or skipped instructions; --dry-run (-n) writes nothing.\n--diff includes content differences. Conflicts and errors exit 2.");
 		return 0;
 	}
 	if (values.check && values["dry-run"]) throw new Error("--check and --dry-run are mutually exclusive");
@@ -286,6 +287,7 @@ const main = function (): number {
 	if (process.env.AGENT_CONFIG_HOME === undefined) {
 		if (process.env.CODEX_HOME) dirs.codex = expandPath(process.env.CODEX_HOME);
 		if (process.env.CLAUDE_CONFIG_DIR) dirs.claude = expandPath(process.env.CLAUDE_CONFIG_DIR);
+		if (process.env.GROK_HOME) dirs.grok = expandPath(process.env.GROK_HOME);
 	}
 	for (const override of values["config-dir"] ?? []) {
 		const index = override.indexOf("=");
@@ -293,6 +295,14 @@ const main = function (): number {
 		const path = override.slice(index + 1);
 		if (index < 0 || !isHarness(name) || !path) throw new Error("--config-dir must be claude=PATH, codex=PATH, or grok=PATH");
 		dirs[name] = expandPath(path);
+	}
+	const skillOverrides = new Map<Harness, string>();
+	for (const override of values["skills-dir"] ?? []) {
+		const index = override.indexOf("=");
+		const name = override.slice(0, index);
+		const path = override.slice(index + 1);
+		if (index < 0 || !isHarness(name) || !path) throw new Error("--skills-dir must be claude=PATH, codex=PATH, or grok=PATH");
+		skillOverrides.set(name, expandPath(path));
 	}
 	const harnesses: readonly Harness[] = ["claude", "codex", "grok"];
 	const selected = selectedArguments.length ? selectedArguments : harnesses.filter(function (name) { return fileStat(dirs[name])?.isDirectory(); });
@@ -303,6 +313,14 @@ const main = function (): number {
 	}
 	for (const name of selected) dirs[name] = canonicalDirectory(dirs[name]);
 	if (new Set(selected.map(function (name) { return dirs[name]; })).size !== selected.length) throw new Error("selected harnesses must use distinct configuration directories");
+	const skillDirs: Record<Harness, string> = {
+		claude: join(dirs.claude, "skills"), codex: join(canonicalDirectory(join(home, ".agents")), "skills"), grok: join(dirs.grok, "skills"),
+	};
+	for (const [name, expanded] of skillOverrides) {
+		// Resolve ancestor aliases, while retaining final-link collision checks.
+		skillDirs[name] = join(canonicalDirectory(dirname(expanded)), basename(expanded));
+	}
+	if (new Set(selected.map(function (name) { return skillDirs[name]; })).size !== selected.length) throw new Error("selected harnesses must use distinct skill directories");
 	const statePath = join(home, ".local/state/agent-config/state.json");
 	const stateBefore = snapshot(statePath);
 	const entries = loadState(stateBefore);
@@ -350,7 +368,7 @@ const main = function (): number {
 				}
 			}
 		}
-		const skillBase = join(configDir, "skills");
+		const skillBase = skillDirs[name];
 		if (snapshot(skillBase).kind === "link" || (existsSync(skillBase) && !fileStat(skillBase)?.isDirectory())) {
 			errors.push(`${skillBase}: expected a real skill directory; refusing to modify it`);
 			continue;
@@ -368,12 +386,21 @@ const main = function (): number {
 			nextEntries.set(dest, { kind: "skill", target: source });
 			if (!same) actions.push({ description: "link skill", path: dest, before: current, after: { kind: "link", target: source } });
 		}
+		const legacyBase = name === "codex" ? join(configDir, "skills") : undefined;
+		const legacyEntries = legacyBase !== undefined && legacyBase !== skillBase
+			? [...entries].filter(function ([dest, entry]) { return entry.kind === "skill" && dirname(dest) === legacyBase; }) : [];
+		const legacyRedirected = legacyEntries.length > 0 && legacyBase !== undefined
+			&& (snapshot(legacyBase).kind === "link" || (existsSync(legacyBase) && !fileStat(legacyBase)?.isDirectory()));
+		if (legacyRedirected) errors.push(`${legacyBase}: legacy skill directory was redirected; leaving managed links untouched`);
 		for (const [dest, entry] of entries) {
-			if (entry.kind !== "skill" || dirname(dest) !== skillBase || skills.has(basename(dest))) continue;
+			if (entry.kind !== "skill") continue;
+			const legacy = legacyBase !== undefined && legacyBase !== skillBase && dirname(dest) === legacyBase;
+			if (legacy && legacyRedirected) continue;
+			if (!legacy && (dirname(dest) !== skillBase || skills.has(basename(dest)))) continue;
 			const current = snapshot(dest);
 			if (current.kind === "missing") nextEntries.delete(dest);
 			else if (current.kind === "link" && linkTarget(dest, current.target) === entry.target) {
-				actions.push({ description: "remove obsolete skill link", path: dest, before: current, after: { kind: "missing" } });
+				actions.push({ description: legacy ? "remove legacy Codex skill link" : "remove obsolete skill link", path: dest, before: current, after: { kind: "missing" } });
 				nextEntries.delete(dest);
 			} else errors.push(`${dest}: obsolete managed link was changed locally; leaving it untouched`);
 		}

@@ -18,8 +18,8 @@
 - Distinguish investigation, implementation, and broader-goal planning by intent, not task size. Evaluation or reading a ticket does not authorize implementation. Ask if the distinction is materially unclear.
 - A direct implementation request authorizes evaluation, implementation, review, cleanup, repair, validation, and PR preparation under repository commit/push policy. Tickets are optional; use PR descriptions or tickets for task records. Do not create task-handoff documents by default.
 - For broader goals, discuss outcomes, problems, constraints, boundaries, and success criteria before proposing batches. Batch approval authorizes tickets for agreed scope, not implementation or newly discovered scope. Stop after preparing tickets unless execution is also authorized.
-- For broader-goal planning and approved ticket preparation, read `goal-planning/SKILL.md`. For authorized implementation, read `project-delivery/SKILL.md`. Read only the applicable skill and conditional references; do not load delivery procedures for investigation-only requests.
-- Find these personal skills in `~/.agents/skills/` (Codex), `~/.claude/skills/` (Claude), or `~/.grok/skills/` (Grok). Check the provider path and shared `~/.agents/skills/` fallback before reporting a required procedure missing. Global authorization and safety rules still apply. Loading a skill grants no additional authority.
+- For broader-goal planning and approved ticket preparation, use the `goal-planning` skill. For authorized implementation, use the `project-delivery` skill. Read only the applicable skill and conditional references; do not load delivery procedures for investigation-only requests.
+- Global authorization and safety rules still apply. Loading a skill grants no additional authority.
 
 # Delivery and Owner Acceptance
 

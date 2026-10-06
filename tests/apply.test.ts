@@ -77,7 +77,7 @@ test("fresh install previews without writes and repeated application is a no-op"
 	const target = join(fixture.home, ".codex/AGENTS.md");
 	expect(isLink(target)).toBe(false);
 	expect(readFileSync(target)).toEqual(readFileSync(fixture.shared));
-	expect(isLink(join(fixture.home, ".codex/skills/sync-agent-config"))).toBe(true);
+	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
 	expect(existsSync(join(fixture.home, ".claude"))).toBe(false);
 	const installed = fixture.tree();
 	fixture.run(["--harness", "codex"]);
@@ -132,7 +132,7 @@ test("empty shared instructions preserve destinations and skip addenda while ski
 	fixture.run(["--dry-run"]);
 	fixture.run();
 	expect(readFileSync(dest, "utf8")).toBe("Keep me.\n");
-	expect(isLink(join(fixture.home, ".codex/skills/sync-agent-config"))).toBe(true);
+	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
 	expect(fixture.run(["--check"], 1).stdout).toContain("Skipped instruction deployment");
 	const before = fixture.tree();
 	fixture.run();
@@ -156,7 +156,7 @@ test("empty source preserves Grok's existing or absent compatibility config", fu
 });
 
 test("renamed/deleted skills are reconciled while native plugins and system skills survive", function () {
-	const skillDir = join(fixture.home, ".codex/skills");
+	const skillDir = join(fixture.home, ".agents/skills");
 	mkdirSync(join(skillDir, ".system"), { recursive: true });
 	symlinkSync(join(fixture.base, "plugin-cache"), join(skillDir, "native-plugin"));
 	const native = join(fixture.home, ".codex/plugins/cache/manifest.json");
@@ -177,7 +177,7 @@ test("renamed/deleted skills are reconciled while native plugins and system skil
 
 test("changed obsolete skill links are never removed", function () {
 	fixture.run(["--harness", "codex"]);
-	const link = join(fixture.home, ".codex/skills/sync-agent-config");
+	const link = join(fixture.home, ".agents/skills/sync-agent-config");
 	unlinkSync(link);
 	symlinkSync(join(fixture.base, "unrelated"), link);
 	rmSync(join(fixture.repo, "skills/sync-agent-config"), { recursive: true });
@@ -193,7 +193,7 @@ test("redirected source cannot claim a changed destination link", function () {
 	const external = join(fixture.base, "external skill");
 	renameSync(source, external);
 	symlinkSync(external, source);
-	const dest = join(fixture.home, ".codex/skills/sync-agent-config");
+	const dest = join(fixture.home, ".agents/skills/sync-agent-config");
 	unlinkSync(dest);
 	symlinkSync(external, dest);
 	for (const keepSkillFile of [true, false]) {
@@ -211,7 +211,7 @@ test("destination aliases are not treated as managed for live or deleted sources
 	const source = join(fixture.repo, "skills/sync-agent-config");
 	const alias = join(fixture.base, "external alias");
 	symlinkSync(source, alias);
-	const dest = join(fixture.home, ".codex/skills/sync-agent-config");
+	const dest = join(fixture.home, ".agents/skills/sync-agent-config");
 	unlinkSync(dest);
 	symlinkSync(alias, dest);
 	for (const sourceExists of [true, false]) {
@@ -224,9 +224,9 @@ test("destination aliases are not treated as managed for live or deleted sources
 });
 
 test("pre-existing custom skill directories block even when contents match", function () {
-	cpSync(join(fixture.repo, "skills/sync-agent-config"), join(fixture.home, ".codex/skills/sync-agent-config"), { recursive: true });
+	cpSync(join(fixture.repo, "skills/sync-agent-config"), join(fixture.home, ".agents/skills/sync-agent-config"), { recursive: true });
 	const before = fixture.tree();
-	fixture.run([], 2);
+	fixture.run(["--harness", "codex"], 2);
 	expect(fixture.tree()).toEqual(before);
 });
 
@@ -306,7 +306,8 @@ test("symlinked whole skill directories cannot modify external contents", functi
 	const external = join(fixture.base, "marketplace-owned");
 	mkdirSync(external);
 	mkdirSync(join(fixture.home, ".codex"), { recursive: true });
-	symlinkSync(external, join(fixture.home, ".codex/skills"));
+	mkdirSync(join(fixture.home, ".agents"), { recursive: true });
+	symlinkSync(external, join(fixture.home, ".agents/skills"));
 	const before = fixture.tree();
 	fixture.run([], 2);
 	expect(fixture.tree()).toEqual(before);
@@ -377,9 +378,105 @@ test("deployment and bun run apply require neither Python nor installed packages
 });
 
 test("invalid CLI arguments fail without writing and help remains available", function () {
-	for (const args of [["--harness", "unknown"], ["--check", "--dry-run"], ["--config-dir", "codex="], ["--unexpected"]]) {
+	for (const args of [["--harness", "unknown"], ["--check", "--dry-run"], ["--config-dir", "codex="], ["--skills-dir", "codex="], ["--unexpected"]]) {
 		fixture.run(args, 2);
 		expect(existsSync(fixture.home)).toBe(false);
 	}
 	expect(fixture.run(["--help"]).stdout).toContain("usage: apply.sh");
+});
+
+test("all harnesses install in native personal locations", function () {
+	fixture.run(["--harness", "codex", "--harness", "claude", "--harness", "grok"]);
+	for (const root of [".agents", ".claude", ".grok"]) {
+		for (const name of ["sync-agent-config", "goal-planning", "project-delivery"]) {
+			expect(readlinkSync(join(fixture.home, root, "skills", name))).toBe(join(fixture.repo, "skills", name));
+		}
+	}
+	expect(existsSync(join(fixture.home, ".codex/skills"))).toBe(false);
+	fixture.run(["--check"]);
+});
+
+const legacyCodex = function (): string {
+	const dest = join(fixture.home, ".codex/skills/sync-agent-config");
+	const target = join(fixture.repo, "skills/sync-agent-config");
+	mkdirSync(join(fixture.home, ".codex/skills/.system"), { recursive: true });
+	symlinkSync(target, dest);
+	fixture.write(join(fixture.home, ".local/state/agent-config/state.json"), JSON.stringify({
+		version: 1, entries: { [dest]: { kind: "skill", target } },
+	}));
+	return dest;
+};
+
+test("legacy Codex migration preserves unmanaged links and system/plugin files", function () {
+	const legacy = legacyCodex();
+	const untracked = join(fixture.home, ".codex/skills/untracked");
+	symlinkSync(join(fixture.repo, "skills/project-delivery"), untracked);
+	fixture.write(join(fixture.home, ".codex/plugins/cache/manifest.json"), "Keep plugin registration");
+	const before = fixture.tree();
+	expect(fixture.run(["--dry-run"]).stdout).toContain("remove legacy Codex skill link");
+	expect(fixture.tree()).toEqual(before);
+	fixture.run();
+	expect(isLink(legacy)).toBe(false);
+	expect(isLink(untracked)).toBe(true);
+	expect(existsSync(join(fixture.home, ".codex/skills/.system"))).toBe(true);
+	expect(readFileSync(join(fixture.home, ".codex/plugins/cache/manifest.json"), "utf8")).toBe("Keep plugin registration");
+	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
+	fixture.run(["--check"]);
+});
+
+test("locally changed legacy links block migration without writes", function () {
+	const legacy = legacyCodex();
+	unlinkSync(legacy);
+	symlinkSync(join(fixture.base, "unrelated"), legacy);
+	const before = fixture.tree();
+	fixture.run(["--dry-run"], 2);
+	fixture.run([], 2);
+	expect(fixture.tree()).toEqual(before);
+	expect(existsSync(join(fixture.home, ".agents"))).toBe(false);
+});
+
+test("a native-destination collision blocks migration without removing legacy links", function () {
+	const legacy = legacyCodex();
+	fixture.write(join(fixture.home, ".agents/skills/sync-agent-config/SKILL.md"), "Existing skill");
+	const before = fixture.tree();
+	fixture.run([], 2);
+	expect(fixture.tree()).toEqual(before);
+	expect(isLink(legacy)).toBe(true);
+});
+
+test("redirected legacy directories cannot remove links owned by another location", function () {
+	legacyCodex();
+	const oldBase = join(fixture.home, ".codex/skills");
+	const external = join(fixture.base, "redirected skills");
+	renameSync(oldBase, external);
+	symlinkSync(external, oldBase);
+	const before = fixture.tree();
+	fixture.run([], 2);
+	expect(fixture.tree()).toEqual(before);
+	expect(isLink(join(external, "sync-agent-config"))).toBe(true);
+});
+
+test("Codex config path does not redirect native skills; explicit skill override is supported", function () {
+	const config = join(fixture.base, "custom codex");
+	fixture.run(["--harness", "codex", "--config-dir", `codex=${config}`]);
+	expect(existsSync(join(config, "AGENTS.md"))).toBe(true);
+	expect(existsSync(join(config, "skills"))).toBe(false);
+	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
+	const skills = join(fixture.base, "custom personal skills");
+	fixture.run(["--harness", "codex", "--config-dir", `codex=${config}`, "--skills-dir", `codex=${skills}`]);
+	expect(isLink(join(skills, "sync-agent-config"))).toBe(true);
+	fixture.run(["--harness", "codex", "--config-dir", `codex=${config}`, "--skills-dir", `codex=${skills}`, "--check"]);
+});
+
+test("Claude and Grok custom config paths retain native skills subdirectories", function () {
+	const claude = join(fixture.base, "custom claude");
+	const grok = join(fixture.base, "custom grok");
+	const args = ["--harness", "claude", "--harness", "grok", "--config-dir", `claude=${claude}`, "--config-dir", `grok=${grok}`];
+	fixture.run(args);
+	for (const path of [claude, grok]) {
+		expect(readlinkSync(join(path, "skills/project-delivery"))).toBe(join(fixture.repo, "skills/project-delivery"));
+	}
+	expect(existsSync(join(claude, "CLAUDE.md"))).toBe(true);
+	expect(existsSync(join(grok, "Agents.md"))).toBe(true);
+	fixture.run([...args, "--check"]);
 });

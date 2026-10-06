@@ -1,0 +1,16 @@
+{
+	"name": "agent-config",
+	"private": true,
+	"type": "module",
+	"engines": { "bun": ">=1.3.14" },
+	"scripts": {
+		"apply": "bun scripts/apply.ts",
+		"check:types": "tsc --noEmit",
+		"test": "bun test",
+		"check": "bun run check:types && bun test"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.3.14",
+		"typescript": "^5.9.3"
+	}
+}

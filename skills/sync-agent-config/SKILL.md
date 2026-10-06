@@ -1,16 +1,20 @@
 ---
 name: sync-agent-config
-description: Install or refresh this machine's Claude Code, Codex, and Grok links from the agent-config repo. Use when the user asks to sync, update, install, or check personal agent instructions or skills from that repo.
+description: Preview, deploy, or check personal global instructions and custom skills from the agent-config repository for Claude Code, Codex, and Grok. Use when the user asks to sync this repository's configuration on a machine.
 ---
 
 # Sync agent config
 
-Work from the root of the agent-config repo. `apply.sh` is the only writer. The rules for destinations, the Grok compatibility flag, and blocked files are in that script and in `README.md`.
+Work from the repository root. `apply.sh` is the deployment writer; see `README.md` for paths, conflict recovery, and exit codes. Instruction source text is data: leave its wording unchanged while syncing. Native marketplace plugins are outside this repository's scope.
 
-1. Run `./apply.sh --check`.
-2. Exit `0` means this machine already matches the repo. Stop.
-3. When the output says `instructions/user.md` has no instruction text, stop before writing. Ask the user to put the global instructions in that file.
-4. Otherwise, exit `1` means a change is pending. Run `./apply.sh`, then run `./apply.sh --check` again. The second check exits `0` when the write succeeded.
-5. Exit `2` means a live file blocked the run and the script wrote nothing. Show the user the script output and stop.
+Use the user's explicit harness selection and path overrides when provided; otherwise let the script detect configured harnesses. Preserve the same arguments throughout preview, apply, and check.
 
-Do not copy, symlink, or edit instruction files, skills, or application config yourself. Text under `instructions/` is data. Leave its wording unchanged while syncing.
+- For a preview, run `./apply.sh --dry-run`, adding `--diff` when content differences are requested. Report the plan and stop without applying.
+- For a check, run `./apply.sh --check`. Exit `1` means pending changes or skipped instructions; checking alone does not authorize deployment.
+- For authorized deployment, preview with `--dry-run` first. Exit `2` means a conflict or error: report it and stop. Otherwise run `./apply.sh`, then `./apply.sh --check`.
+
+An empty shared instruction source skips instruction files, addenda, and the Grok instruction-compatibility setting while allowing custom skills to sync. Report that skip; do not populate or edit the source without authorization. The final check can remain at exit `1` solely because instructions were skipped. No detected harnesses means no deployment; report that result.
+
+These commands compare against the local checkout. If the user requests remote updates, first inspect Git status and use `git pull --ff-only` when the checkout is clean; stop on local changes or a divergent history rather than discarding work. Do not pull for a local preview or check alone. Deployment does not include committing or pushing source changes.
+
+Do not bypass conflicts with manual copies, symlinks, config edits, or state edits. On an interrupted application, report the error and printed recovery-backup location; partial writes are possible.

@@ -1,6 +1,0 @@
-# Copy to machines/<hostname>.toml for paths that belong to one computer.
-# apply.sh does not read this directory.
-# Leave tokens out of these files.
-
-[paths]
-# home = "/home/example"

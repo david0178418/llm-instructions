@@ -1,8 +1,0 @@
-# Plugin installs to add later. List names and marketplaces here.
-# Leave tokens, caches, and local install paths out of this file.
-# apply.sh does not install these entries.
-
-# [[plugin]]
-# app = "claude"
-# marketplace = "claude-plugins-official"
-# name = "example"

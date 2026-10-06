@@ -48,7 +48,7 @@ scripts/apply.ts           planner and deployment implementation
 
 Edit instructions and skills in this repository, then commit and push them to distribute updates. Instruction text is data; applying it does not authorize changing its wording.
 
-For each selected harness, the script copies shared instructions followed by a non-empty harness addendum into its global instruction file. Instructions are regular files, not symlinks. An empty or whitespace-only shared source skips all instruction deployment, including addenda and the Grok instruction-compatibility setting, preserving existing instruction files and sources. Custom skill deployment can still proceed. The draft intentionally leaves the shared source empty until you import your instructions.
+For each selected harness, the script copies shared instructions followed by a non-empty harness addendum into its global instruction file. Instructions are regular files, not symlinks. An empty or whitespace-only shared source skips all instruction deployment, including addenda and the Grok instruction-compatibility setting, preserving existing instruction files and sources. Custom skill deployment can still proceed.
 
 | Harness | Default instruction destination | Default custom skill directory |
 | --- | --- | --- |

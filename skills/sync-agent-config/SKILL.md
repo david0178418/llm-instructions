@@ -1,6 +1,6 @@
 ---
 name: sync-agent-config
-description: Preview, deploy, or check personal global instructions and custom skills from the agent-config repository for Claude Code, Codex, and Grok. Use when the user asks to sync this repository's configuration on a machine.
+description: Preview, deploy, or check personal global instructions and custom skills from the llm-instructions repository for Claude Code, Codex, and Grok. Use when the user asks to sync this repository's configuration on a machine.
 ---
 
 # Sync agent config

@@ -175,7 +175,7 @@ const loadState = function (current: Snapshot): Map<string, StateEntry> {
 };
 const atomicWrite = function (path: string, content: Buffer, mode = 0o600): void {
 	mkdirSync(dirname(path), { recursive: true });
-	const temporary = join(dirname(path), ".agent-config-" + crypto.randomUUID());
+	const temporary = join(dirname(path), ".llm-instructions-" + crypto.randomUUID());
 	const fd = openSync(temporary, "wx", 0o600);
 	try {
 		writeFileSync(fd, content);
@@ -198,7 +198,7 @@ const applyAction = function (action: Action): void {
 		atomicWrite(action.path, action.after.content, mode);
 	} else if (action.after.kind === "link") {
 		mkdirSync(dirname(action.path), { recursive: true });
-		const temporary = join(dirname(action.path), ".agent-config-" + crypto.randomUUID());
+		const temporary = join(dirname(action.path), ".llm-instructions-" + crypto.randomUUID());
 		symlinkSync(action.after.target, temporary);
 		try { renameSync(temporary, action.path); }
 		finally { rmSync(temporary, { force: true }); }
@@ -282,9 +282,10 @@ const main = function (): number {
 		if (!isHarness(name)) throw new Error(`unknown harness: ${name}`);
 		if (!selectedArguments.includes(name)) selectedArguments.push(name);
 	}
-	const home = expandPath(process.env.AGENT_CONFIG_HOME ?? homedir());
+	const configuredHome = process.env.LLM_INSTRUCTIONS_HOME;
+	const home = expandPath(configuredHome ?? homedir());
 	const dirs: Record<Harness, string> = { claude: join(home, ".claude"), codex: join(home, ".codex"), grok: join(home, ".grok") };
-	if (process.env.AGENT_CONFIG_HOME === undefined) {
+	if (configuredHome === undefined) {
 		if (process.env.CODEX_HOME) dirs.codex = expandPath(process.env.CODEX_HOME);
 		if (process.env.CLAUDE_CONFIG_DIR) dirs.claude = expandPath(process.env.CLAUDE_CONFIG_DIR);
 		if (process.env.GROK_HOME) dirs.grok = expandPath(process.env.GROK_HOME);
@@ -321,7 +322,7 @@ const main = function (): number {
 		skillDirs[name] = join(canonicalDirectory(dirname(expanded)), basename(expanded));
 	}
 	if (new Set(selected.map(function (name) { return skillDirs[name]; })).size !== selected.length) throw new Error("selected harnesses must use distinct skill directories");
-	const statePath = join(home, ".local/state/agent-config/state.json");
+	const statePath = join(home, ".local/state/llm-instructions/state.json");
 	const stateBefore = snapshot(statePath);
 	const entries = loadState(stateBefore);
 	const nextEntries = new Map(entries);
@@ -432,7 +433,8 @@ const main = function (): number {
 	if (!actions.length && !stateChanged) console.log("No changes" + (skipped ? " to eligible files; instruction deployment remains skipped." : "; selected harnesses match this checkout."));
 	if (values.check) return actions.length || stateChanged || skipped ? 1 : 0;
 	if (values["dry-run"] || (!actions.length && !stateChanged)) return 0;
-	if (!sameSnapshot(snapshot(statePath), stateBefore) || actions.some(function (action) { return !sameSnapshot(snapshot(action.path), action.before); })) {
+	if (!sameSnapshot(snapshot(statePath), stateBefore)
+		|| actions.some(function (action) { return !sameSnapshot(snapshot(action.path), action.before); })) {
 		throw new Error("configuration changed after planning; nothing applied, rerun dry run");
 	}
 	writeBackups(actions, statePath, stateBefore);

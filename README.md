@@ -1,4 +1,4 @@
-# agent-config
+# llm-instructions
 
 Personal global instructions and custom skills for Claude Code, Codex, and Grok on Linux and macOS. Git distributes the source files; `apply.sh` deploys a local checkout. Native marketplace plugins remain independently managed by each application.
 
@@ -15,8 +15,8 @@ Python and a separate Node executable are not required. `apply.sh` launches the 
 Install your chosen applications and their native marketplace plugins normally, then clone this repository:
 
 ```bash
-git clone <repository-url> ~/agent-config
-cd ~/agent-config
+git clone <repository-url> ~/llm-instructions
+cd ~/llm-instructions
 ./apply.sh --dry-run --diff
 ./apply.sh
 ./apply.sh --check
@@ -96,11 +96,11 @@ After installation, the script records the last applied instruction contents and
 The state and recovery backups live under:
 
 ```text
-~/.local/state/agent-config/state.json
-~/.local/state/agent-config/backups/<timestamp>/
+~/.local/state/llm-instructions/state.json
+~/.local/state/llm-instructions/backups/<timestamp>/
 ```
 
-Retain deployment state: it establishes ownership for updates and stale-link cleanup. The version-1 JSON state format is unchanged from the Python implementation; no migration or fresh installation is required. On every changing run, a recovery journal records the affected destinations, prior symlink targets, and backups of replaced file contents and previous state. Before manual restoration, inspect the journal and current destinations; restore only the entries from the affected run. For newly created destinations, the journal records that they were previously missing. To restore a converted instruction symlink, its prior target and a content backup are both recorded.
+Retain deployment state: it establishes ownership for updates and stale-link cleanup. The version-1 JSON state format is unchanged from the Python implementation. On every changing run, a recovery journal records the affected destinations, prior symlink targets, and backups of replaced file contents and previous state. Before manual restoration, inspect the journal and current destinations; restore only the entries from the affected run. For newly created destinations, the journal records that they were previously missing. To restore a converted instruction symlink, its prior target and a content backup are both recorded.
 
 All planned conflicts are checked before deployment. File replacement is atomic, but the whole run is not a transaction: an I/O failure or concurrent edit during application can leave a partial deployment. Use the printed backup directory to recover, then rerun the preview. Concurrent deployments should be avoided.
 
@@ -123,7 +123,7 @@ Claude and Grok personal skill destinations follow their selected configuration 
 
 This deployment override does not configure the harness to discover that alternate directory. Use native defaults unless the harness is separately configured for the alternative. Repeat overrides on future runs. Changes to custom skill directories preserve managed links outside the currently selected destinations; automatic migration is limited to the legacy Codex configuration-directory path.
 
-`AGENT_CONFIG_HOME` redirects the default home paths and deployment state, primarily for isolated tests. When set, it also suppresses inherited `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `GROK_HOME`; explicit path arguments still work.
+`LLM_INSTRUCTIONS_HOME` redirects the default home paths and deployment state, primarily for isolated tests. When set, it also suppresses inherited `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `GROK_HOME`; explicit path arguments still work.
 
 ## Native plugins and unrelated files
 

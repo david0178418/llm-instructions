@@ -9,6 +9,8 @@ Work from the repository root. `apply.sh` is the deployment writer; see `README.
 
 Use the user's explicit harness selection and path overrides when provided; otherwise let the script detect configured harnesses. Preserve the same arguments throughout preview, apply, and check.
 
+Use `--force` only when the user explicitly authorizes overwriting existing instruction files or discarding local instruction edits. It backs up and replaces regular instruction files only; other conflicts remain protected. Include it in the preview before applying.
+
 - For a preview, run `./apply.sh --dry-run`, adding `--diff` when content differences are requested. Report the plan and stop without applying.
 - For a check, run `./apply.sh --check`. Exit `1` means pending changes or skipped instructions; checking alone does not authorize deployment.
 - For authorized deployment, preview with `--dry-run` first. Exit `2` means a conflict or error: report it and stop. Otherwise run `./apply.sh`, then `./apply.sh --check`.

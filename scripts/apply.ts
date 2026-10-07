@@ -268,12 +268,12 @@ const writeBackups = function (actions: readonly Action[], statePath: string, st
 const main = function (): number {
 	const { values } = parseArgs({ args: process.argv.slice(2), options: {
 		check: { type: "boolean" }, "dry-run": { type: "boolean", short: "n" },
-		diff: { type: "boolean" }, help: { type: "boolean", short: "h" },
+		diff: { type: "boolean" }, force: { type: "boolean" }, help: { type: "boolean", short: "h" },
 		harness: { type: "string", multiple: true }, "config-dir": { type: "string", multiple: true },
 		"skills-dir": { type: "string", multiple: true },
 	} });
 	if (values.help) {
-		console.log("usage: apply.sh [--check | --dry-run] [--diff] [--harness claude|codex|grok] [--config-dir HARNESS=PATH] [--skills-dir HARNESS=PATH]\n\nDetect configured harnesses by default; repeat --harness to select explicitly.\n--check exits 1 for pending changes or skipped instructions; --dry-run (-n) writes nothing.\n--diff includes content differences. Conflicts and errors exit 2.");
+		console.log("usage: apply.sh [--check | --dry-run] [--diff] [--force] [--harness claude|codex|grok] [--config-dir HARNESS=PATH] [--skills-dir HARNESS=PATH]\n\nDetect configured harnesses by default; repeat --harness to select explicitly.\n--check exits 1 for pending changes or skipped instructions; --dry-run (-n) writes nothing.\n--diff includes content differences.\n--force overwrites differing regular instruction files with recovery backups; other conflicts remain protected.\nConflicts and errors exit 2.");
 		return 0;
 	}
 	if (values.check && values["dry-run"]) throw new Error("--check and --dry-run are mutually exclusive");
@@ -356,6 +356,8 @@ const main = function (): number {
 				conflict = previous?.kind !== "instruction" || !old?.equals(Buffer.from(previous.content));
 			}
 			if (repoLink && !old?.equals(desired)) conflict = true;
+			const forced = conflict && current.kind === "file" && values.force;
+			if (forced) conflict = false;
 			if (conflict) {
 				errors.push(`${instructionPath}: instruction contents differ locally or destination is not owned; compare/import before applying`);
 				if (values.diff && old) printDiff(instructionPath, old, desired);
@@ -363,7 +365,7 @@ const main = function (): number {
 				nextEntries.set(instructionPath, { kind: "instruction", content: desiredText });
 				const after: Snapshot = { kind: "file", content: desired };
 				if (!sameSnapshot(current, after)) {
-					actions.push({ description: "write instructions", path: instructionPath, before: current, after });
+					actions.push({ description: forced ? "force overwrite instructions" : "write instructions", path: instructionPath, before: current, after });
 					if (values.diff) printDiff(instructionPath, old ?? Buffer.alloc(0), desired);
 				}
 			}

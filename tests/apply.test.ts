@@ -166,13 +166,81 @@ test("initial conflicts and subsequent local edits block every planned write", f
 	fixture.run(["--check"]);
 });
 
+test("force previews and backs up initial instruction overwrites for selected harnesses", function () {
+	const dest = join(fixture.home, ".codex/AGENTS.md");
+	const untouched = join(fixture.home, ".claude/CLAUDE.md");
+	fixture.write(dest, "Existing instructions.\n");
+	fixture.write(untouched, "Keep Claude instructions.\n");
+	chmodSync(dest, 0o640);
+	const args = ["--harness", "codex", "--force"];
+	const before = fixture.tree();
+	const preview = fixture.run([...args, "--dry-run", "--diff"]);
+	expect(preview.stdout).toContain("Would force overwrite instructions");
+	expect(preview.stdout).toContain("-Existing instructions.");
+	expect(preview.stdout).toContain("+Shared instructions.");
+	fixture.run([...args, "--check"], 1);
+	expect(fixture.tree()).toEqual(before);
+	const applied = fixture.run(args);
+	expectBackup(recovery(applied.stdout).record(dest), Buffer.from("Existing instructions.\n"));
+	expect(readFileSync(dest)).toEqual(readFileSync(fixture.shared));
+	expect(lstatSync(dest).mode & 0o777).toBe(0o640);
+	expect(readFileSync(untouched, "utf8")).toBe("Keep Claude instructions.\n");
+	fixture.run(["--harness", "codex", "--check"]);
+	const installed = fixture.tree();
+	fixture.run(args);
+	expect(fixture.tree()).toEqual(installed);
+});
+
+test("force backs up local edits and records ownership for subsequent normal updates", function () {
+	fixture.run(["--harness", "codex"]);
+	const dest = join(fixture.home, ".codex/AGENTS.md");
+	writeFileSync(dest, "Local edits.\n");
+	writeFileSync(fixture.shared, "Upstream edits.\n");
+	fixture.run([], 2);
+	const applied = fixture.run(["--force"]);
+	expectBackup(recovery(applied.stdout).record(dest), Buffer.from("Local edits.\n"));
+	expect(readFileSync(dest, "utf8")).toBe("Upstream edits.\n");
+	fixture.run(["--check"]);
+	writeFileSync(fixture.shared, "Next update.\n");
+	fixture.run();
+	expect(readFileSync(dest, "utf8")).toBe("Next update.\n");
+});
+
+test("force preserves instruction links, directories, and skill collisions without any writes", function () {
+	const dest = join(fixture.home, ".codex/AGENTS.md");
+	const external = join(fixture.base, "external.md");
+	fixture.write(external, "External instructions.\n");
+	fixture.write(dest, "Existing instructions.\n");
+	const skill = join(fixture.home, ".agents/skills/sync-agent-config");
+	fixture.write(join(skill, "SKILL.md"), "Existing skill.\n");
+	const before = fixture.tree();
+	fixture.run(["--harness", "codex", "--force"], 2);
+	expect(fixture.tree()).toEqual(before);
+	rmSync(skill, { recursive: true });
+	unlinkSync(dest);
+	const repoInstruction = join(fixture.repo, "instructions/legacy.md");
+	fixture.write(repoInstruction, "Legacy instructions.\n");
+	for (const target of [external, repoInstruction]) {
+		symlinkSync(target, dest);
+		const linked = fixture.tree();
+		fixture.run(["--harness", "codex", "--force"], 2);
+		expect(fixture.tree()).toEqual(linked);
+		unlinkSync(dest);
+	}
+	expect(readFileSync(external, "utf8")).toBe("External instructions.\n");
+	mkdirSync(dest);
+	const directory = fixture.tree();
+	fixture.run(["--harness", "codex", "--force"], 2);
+	expect(fixture.tree()).toEqual(directory);
+});
+
 test("empty shared instructions preserve destinations and skip addenda while skills sync", function () {
 	writeFileSync(fixture.shared, " \n");
 	writeFileSync(join(fixture.repo, "instructions/codex.md"), "Addendum only.\n");
 	const dest = join(fixture.home, ".codex/AGENTS.md");
 	fixture.write(dest, "Keep me.\n");
 	fixture.run(["--dry-run"]);
-	fixture.run();
+	fixture.run(["--force"]);
 	expect(readFileSync(dest, "utf8")).toBe("Keep me.\n");
 	expect(isLink(join(fixture.home, ".agents/skills/sync-agent-config"))).toBe(true);
 	expect(fixture.run(["--check"], 1).stdout).toContain("Skipped instruction deployment");

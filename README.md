@@ -91,7 +91,17 @@ Before initial deployment, compare existing global instruction files across your
 
 Existing custom skill directories are never replaced, even when their contents match. Copy the intended custom skill into this repository, compare it, and move the original directory to a backup location outside the active skill directory before applying. Do not import marketplace plugin directories or application-provided skills.
 
-After installation, the script records the last applied instruction contents and each managed skill destination. Locally edited instruction files block overwrites. Resolve by incorporating the intended edits into the canonical sources so the assembled content matches, or by restoring the last applied destination content from a backup. Then dry-run again. There is no force-overwrite option.
+After installation, the script records the last applied instruction contents and each managed skill destination. Locally edited instruction files block overwrites by default. Resolve by incorporating the intended edits into the canonical sources so the assembled content matches, or by restoring the last applied destination content from a backup. Then dry-run again.
+
+To explicitly replace differing pre-existing regular instruction files or discard local instruction edits, use `--force`:
+
+```bash
+./apply.sh --force --dry-run --diff
+./apply.sh --force
+./apply.sh --check
+```
+
+Forced overwrites are identified in the plan and preserve the previous file contents in recovery backups before replacement. `--force` applies only to regular instruction files for selected harnesses; instruction symlinks and directories, skill collisions, Grok configuration errors, invalid state, and concurrent-edit checks retain their normal protections. Empty shared instructions still skip instruction deployment. With `--dry-run` or `--check`, `--force` previews the same overwrite plan without writing anything; check exits `1` when changes are pending.
 
 The state and recovery backups live under:
 

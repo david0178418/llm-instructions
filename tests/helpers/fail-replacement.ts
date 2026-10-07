@@ -4,7 +4,7 @@ import { mock } from "bun:test";
 import * as filesystem from "node:fs";
 import type { PathLike } from "node:fs";
 
-const destination = process.env.AGENT_CONFIG_TEST_FAIL_DEST;
+const destination = process.env.LLM_INSTRUCTIONS_TEST_FAIL_DEST;
 if (destination === undefined) throw new Error("failure destination is required");
 const originalRename = filesystem.renameSync;
 mock.module("node:fs", function () {

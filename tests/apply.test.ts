@@ -9,11 +9,11 @@ import { dirname, join, relative } from "node:path";
 
 const SOURCE = realpathSync(join(import.meta.dir, ".."));
 class Fixture {
-	readonly base = realpathSync(mkdtempSync(join(tmpdir(), "agent-config-test-")));
+	readonly base = realpathSync(mkdtempSync(join(tmpdir(), "llm-instructions-test-")));
 	readonly repo = join(this.base, "repo with spaces");
 	readonly home = join(this.base, "home");
 	readonly shared = join(this.repo, "instructions/user.md");
-	readonly env: NodeJS.ProcessEnv = { ...process.env, AGENT_CONFIG_HOME: this.home };
+	readonly env: NodeJS.ProcessEnv = { ...process.env, LLM_INSTRUCTIONS_HOME: this.home };
 	constructor() {
 		mkdirSync(this.repo);
 		for (const path of ["apply.sh", "scripts/apply.ts", "instructions", "skills", "package.json"]) {
@@ -368,7 +368,7 @@ test("explicit selection leaves unselected harness edits alone", function () {
 });
 
 test("malformed deployment state blocks all writes", function () {
-	const state = join(fixture.home, ".local/state/agent-config/state.json");
+	const state = join(fixture.home, ".local/state/llm-instructions/state.json");
 	for (const content of ['{}', '{"version":1,"entries":{"relative":{"kind":"skill","target":"bad"}}}', 'not json']) {
 		fixture.write(state, content);
 		const before = fixture.tree();
@@ -391,7 +391,7 @@ test("existing version-1 state supports updates, conflicts, exact backups, and c
 		[instruction]: { kind: "instruction", content: oldContents },
 		[legacySkill]: { kind: "skill", target: legacyTarget },
 	} }, null, 2).replaceAll("é", "\\u00e9") + "\n";
-	fixture.write(join(fixture.home, ".local/state/agent-config/state.json"), serialized);
+	fixture.write(join(fixture.home, ".local/state/llm-instructions/state.json"), serialized);
 	writeFileSync(instruction, "Local edit.\n");
 	const before = fixture.tree();
 	fixture.run(["--dry-run"], 2);
@@ -401,6 +401,20 @@ test("existing version-1 state supports updates, conflicts, exact backups, and c
 	const update = fixture.run();
 	expect(readFileSync(instruction, "utf8")).toBe("Shared instructions.\n");
 	expectAbsent(legacySkill);
+	expect(readFileSync(join(fixture.home, ".local/state/llm-instructions/state.json"), "utf8")).toBe(JSON.stringify({
+		version: 1, entries: {
+			[instruction]: { kind: "instruction", content: "Shared instructions.\n" },
+			[join(fixture.home, ".agents/skills/goal-planning")]: {
+				kind: "skill", target: join(fixture.repo, "skills/goal-planning"),
+			},
+			[join(fixture.home, ".agents/skills/project-delivery")]: {
+				kind: "skill", target: join(fixture.repo, "skills/project-delivery"),
+			},
+			[join(fixture.home, ".agents/skills/sync-agent-config")]: {
+				kind: "skill", target: join(fixture.repo, "skills/sync-agent-config"),
+			},
+		},
+	}, null, 2) + "\n");
 	const journal = recovery(update.stdout);
 	expectBackup(journal.record(instruction), Buffer.from(oldContents));
 	expect(journal.record(legacySkill)).toEqual({ path: legacySkill, before: "link", after: "missing", target: legacyTarget });
@@ -438,7 +452,7 @@ const legacyCodex = function (): string {
 	const target = join(fixture.repo, "skills/sync-agent-config");
 	fixture.write(join(fixture.home, ".codex/skills/.system/builtin/SKILL.md"), "Application-owned built-in");
 	symlinkSync(target, dest);
-	fixture.write(join(fixture.home, ".local/state/agent-config/state.json"), JSON.stringify({
+	fixture.write(join(fixture.home, ".local/state/llm-instructions/state.json"), JSON.stringify({
 		version: 1, entries: { [dest]: { kind: "skill", target } },
 	}));
 	return dest;
@@ -530,10 +544,10 @@ test.each([".claude/CLAUDE.md", ".codex/AGENTS.md"])("failed replacement of %s p
 	const claude = join(fixture.home, ".claude/CLAUDE.md");
 	const codex = join(fixture.home, ".codex/AGENTS.md");
 	const originals = new Map([claude, codex].map(function (path) { return [path, readFileSync(path)] as const; }));
-	const state = join(fixture.home, ".local/state/agent-config/state.json");
+	const state = join(fixture.home, ".local/state/llm-instructions/state.json");
 	const originalState = readFileSync(state);
 	writeFileSync(fixture.shared, "Updated instructions.\n");
-	fixture.env.AGENT_CONFIG_TEST_FAIL_DEST = join(fixture.home, failedPath);
+	fixture.env.LLM_INSTRUCTIONS_TEST_FAIL_DEST = join(fixture.home, failedPath);
 	const result = fixture.run(args, 2, join(SOURCE, "tests/helpers/fail-replacement.ts"));
 	expect(result.stderr).toContain("Injected replacement failure");
 	const journal = recovery(result.stdout);
@@ -546,7 +560,7 @@ test.each([".claude/CLAUDE.md", ".codex/AGENTS.md"])("failed replacement of %s p
 		expectBackup(record, original);
 		const appliedBeforeFailure = failedPath === ".codex/AGENTS.md" && path === claude;
 		expect(readFileSync(path)).toEqual(appliedBeforeFailure ? Buffer.from("Updated instructions.\n\nClaude-specific.\n") : original);
-		expect(readdirSync(dirname(path)).filter(function (name) { return name.startsWith(".agent-config-"); })).toEqual([]);
+		expect(readdirSync(dirname(path)).filter(function (name) { return name.startsWith(".llm-instructions-"); })).toEqual([]);
 		// Restore from the documented recovery records, not from test originals.
 		if (record.backup === undefined) throw new Error("missing recovery backup");
 		writeFileSync(path, readFileSync(record.backup));

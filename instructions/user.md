@@ -6,6 +6,7 @@
 
 # Coding Standards
 
+- Prefer established third-party libraries for common, low-level, or complex functionality, such as IndexedDB interactions and common algorithms, when they reduce maintenance overhead compared with writing and maintaining it from scratch. Before adopting a library, verify that it is reasonably active in development, has meaningful adoption, and fits the project's requirements; prefer suitable dependencies already in use.
 - In TypeScript, do not use `any`, non-null assertions, or unchecked casts to bypass the type checker. Model types accurately, narrow unknown values, validate untrusted inputs, and handle invalid states. If a safe type model is not achievable, stop affected work and explain.
 - Prefer pure functions, immutable inputs, `const`, array methods, early returns, and shallow nesting where clear. Use `as const` where appropriate. Allow mutation, loops, classes, and `switch` when clarity, performance, or existing APIs justify them; avoid externally observable mutation unless required. Do not rewrite unrelated code for style.
 - Prefer function expressions assigned to `const` over arrow functions assigned to `const`. Match existing indentation; default to tabs when unknown.

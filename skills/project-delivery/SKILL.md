@@ -11,6 +11,10 @@ Carry approved work to a concrete, reviewable result under global and repository
 
 Inspect the request or ticket, acceptance criteria, dependencies, current branch/worktree, existing work, and relevant project checks. Record material decisions in the ticket or PR description; preserve unrelated changes and avoid task-handoff artifacts by default.
 
+When instructed to implement a GitHub issue, read its current body and relevant discussion, then check repository evidence for missing implementation details before starting dependent work. If an unresolved gap could significantly change implementation direction, such as product behavior, architecture, compatibility, or data handling, ask the owner one focused question at a time and wait for an answer. Explain why the decision matters and offer a recommendation when useful. An instruction to implement the issue does not settle these decisions. Continue independent authorized work while clarification is pending, and apply the same rule to significant gaps discovered during implementation.
+
+For smaller details that do not materially affect implementation direction or existing contracts, choose a reasonable default consistent with the repository and proceed. Briefly report the judgment call and its rationale in delivery feedback, and record it in the PR description when relevant to review; do not interrupt the owner for routine choices.
+
 Implement small or tightly coupled work directly. Delegate substantial independent work when useful and supported. Give workers clear scope, acceptance criteria, file ownership, and decision authority; coordinate overlapping edits. Workers must not recursively delegate review or create PRs. The primary agent owns final review and delivery.
 
 When delegating, the orchestrator may use these model and effort suggestions when appropriate:

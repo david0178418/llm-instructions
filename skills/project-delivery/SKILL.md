@@ -13,6 +13,15 @@ Inspect the request or ticket, acceptance criteria, dependencies, current branch
 
 Implement small or tightly coupled work directly. Delegate substantial independent work when useful and supported. Give workers clear scope, acceptance criteria, file ownership, and decision authority; coordinate overlapping edits. Workers must not recursively delegate review or create PRs. The primary agent owns final review and delivery.
 
+When delegating, the orchestrator may use these model and effort suggestions when appropriate:
+
+- Luna 6 at XHigh effort for straightforward tasks.
+- Sol 6.1 at medium effort for moderately complex to complex tasks.
+- Sol 6.1 at high effort for more in-depth, complex tasks, investigations, or evaluations.
+- Grok 4.7 at XHigh effort for general research.
+
+These are optional suggestions, not requirements to delegate or use a particular model. The orchestrator may choose other models or effort levels based on the task, availability, and explicit user instructions. Resolve model names against the live provider catalog when available.
+
 Escalate material changes to scope, product behavior, public contracts, or owner decisions. Record the question, recommendation, alternatives, and tradeoffs in the ticket or PR description and use "Needs Owner Input" conventions when available. Ask one question at a time and wait. Pause dependent work while continuing independent authorized work; resume the existing worker unless its approach or context warrants replacement.
 
 ## Review, Repair, and Validate

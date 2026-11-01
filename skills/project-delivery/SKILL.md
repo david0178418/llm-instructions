@@ -34,7 +34,7 @@ Review the final diff for correctness, unintended scope, and maintainability; pe
 
 Evaluate review findings independently and do not hesitate to push back when you disagree. Explain the disagreement to the reviewer with concrete evidence from the code, requirements, or validation; do not apply a finding solely because a reviewer raised it. Resolve technical disagreements directly with the reviewer, apply findings that hold up, and record the rationale for findings you decline. Escalate unresolved disagreements that require owner decisions.
 
-Run relevant project checks, including the available Bun typecheck script for code changes. Exercise the requested acceptance journey: tests should verify changed behavior or meaningful failure paths, rather than mirror implementation. Scale verification to the change.
+Run relevant project checks, including the available Bun typecheck script for code changes. Exercise the requested acceptance journey and scale verification to the change. Follow the global high-value test rule before adding or modifying tests.
 
 For visible behavior, obtain a preview or behavior-specific evidence through the project's existing route. If preview tooling fails, use an appropriate browser or focused runtime fallback and state its limits. Separate deterministic checks, browser evidence, physical-device evidence, and owner acceptance. Honor requested owner preview before commit or merge; do not substitute passing checks for that approval.
 

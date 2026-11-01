@@ -13,6 +13,7 @@
 - In React, use `useEffect` for side effects or external synchronization, not state derivable during rendering.
 - Ask about backward compatibility when a proposed change could break existing callers, public APIs, persisted data, or integrations and no applicable policy is settled. Do not infer authorization to break contracts or add unnecessary compatibility layers.
 - In Bun projects, run an appropriate available typecheck script (`check`, `check:types`, or `typecheck`) for code changes, plus checks relevant to changed behavior.
+- Never write tests unless they are high value: they must protect meaningful behavior or failure paths where a regression would matter, rather than mirror implementation or add coverage for its own sake. If there is any doubt whether a proposed test is high value, ask the owner before writing it and wait for an answer. This rule governs adding or modifying tests; continue running relevant existing checks.
 
 # Task Intent and Skill Routing
 

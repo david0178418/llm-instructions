@@ -29,6 +29,7 @@
 - The primary agent owns authorized delivery through review, cleanup, repair, validation, and PR preparation. Continue routine fixes until complete, owner input is required, or genuinely blocked. Use independent review for substantial or risky changes; focused self-review suffices for trivial changes.
 - Escalate material changes to product behavior, scope, public contracts, or owner decisions. Honor explicit preview-before-commit and leave-open instructions. Product direction, creative decisions, and acceptance of feel remain with the owner.
 - For visible behavior, include a preview or behavior-specific evidence and report unavailable checks accurately. Passing tests, typechecking, or a completed agent turn alone does not establish acceptance. Revalidate code affected by review repairs.
+- Keep generated validation and review evidence out of version control, including screenshots, recordings, logs, validation dumps, and task-specific reports. Store these artifacts outside the repository or in an ignored local directory, and summarize results in the PR description. Requirements to capture or report evidence do not authorize checking it in; commit evidence only when the user explicitly requests it. This rule does not prohibit product assets, test fixtures, or maintained project documentation needed for ongoing use.
 
 # Task Resource Cleanup
 
